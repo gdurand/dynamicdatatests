@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reactive;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using DynamicData;
 using DynamicData.Binding;
+using DynamicData.Kernel;
 using Xunit;
 
 namespace DynamicDataTests
@@ -13,6 +16,13 @@ namespace DynamicDataTests
 		internal SourceCache<Domain, long> Domains { get; } = new SourceCache<Domain, long>(_ => _.Id);
 
 		internal Subject<Unit> ParentUpdates { get; } = new Subject<Unit>();
+
+		internal IObservable<IGroupChangeSet<Domain, long, Domain>> GroupedDomains { get; }
+
+		public Project()
+		{
+			GroupedDomains = Domains.Connect().Group(_ => _.Parent);
+		}
 	}
 
 	[System.Diagnostics.DebuggerDisplay("{Id}")]
@@ -55,7 +65,7 @@ namespace DynamicDataTests
 		{
 			CreateDomains(domain =>
 				domain.Project.Domains.Connect()
-						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+					.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
 			);
 		}
 
@@ -64,7 +74,7 @@ namespace DynamicDataTests
 		{
 			CreateDomains(domain =>
 				domain.Project.Domains.Connect().AutoRefresh(_ => _.Parent)
-						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+					.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
 			);
 		}
 
@@ -73,7 +83,28 @@ namespace DynamicDataTests
 		{
 			CreateDomains(domain =>
 				domain.Project.Domains.Connect().AutoRefreshOnObservable(_ => domain.Project.ParentUpdates)
-						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+					.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+			);
+		}
+
+		[Fact]
+		public void CreateDomains_WithReapplyFilter_WithBug()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect()
+					.Filter(_ => _.Parent != null && _.Parent == domain)
+					.Filter(domain.Project.ParentUpdates) // Exception here: does not seem normal: this method calls new DynamicFilter with predicateChanged = null and this constructor throws if predicateChanged is null
+					.AsObservableCache()
+			);
+		}
+
+		[Fact]
+		public void CreateDomains_WithReapplyFilter()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect()
+					.Filter(new BehaviorSubject<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain), domain.Project.ParentUpdates)
+					.AsObservableCache()
 			);
 		}
 
@@ -83,16 +114,20 @@ namespace DynamicDataTests
 			const int nbChildren = 20;
 			var project = new Project();
 
+			var domains = new List<Domain>();
+
 			for (int i = 0; i < 10; i++)
 			{
 				var parent = new Domain(project, i, childrenFactory);
-				project.Domains.AddOrUpdate(parent);
+				domains.Add(parent);
 
 				for (int j = 0; j < nbChildren; j++)
 				{
-					project.Domains.AddOrUpdate(new Domain(project, (i + 1) * nbChildren + j, childrenFactory, parent));
+					domains.Add(new Domain(project, (i + 1) * nbChildren + j, childrenFactory, parent));
 				}
 			}
+
+			project.Domains.AddOrUpdate(domains);
 
 			// check a parent has the proper number of children and they all have it as parent
 			var parent1 = project.Domains.Lookup(0).Value;
