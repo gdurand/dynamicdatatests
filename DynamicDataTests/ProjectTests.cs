@@ -103,7 +103,7 @@ namespace DynamicDataTests
 		{
 			CreateDomains(domain =>
 				domain.Project.Domains.Connect()
-					.Filter(new BehaviorSubject<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain), domain.Project.ParentUpdates)
+					.Filter(Observable.Return<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain), domain.Project.ParentUpdates)
 					.AsObservableCache()
 			);
 		}
@@ -111,7 +111,7 @@ namespace DynamicDataTests
 		private void CreateDomains(Func<Domain, IObservableCache<Domain, long>> childrenFactory)
 		{
 			// add domains to the flat cache
-			const int nbChildren = 20;
+			const int nbChildren = 200;
 			var project = new Project();
 
 			var domains = new List<Domain>();
