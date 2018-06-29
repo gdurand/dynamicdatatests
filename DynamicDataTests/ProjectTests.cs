@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Linq;
+using System.Reactive;
+using System.Reactive.Subjects;
 using DynamicData;
 using DynamicData.Binding;
 using Xunit;
@@ -9,6 +11,8 @@ namespace DynamicDataTests
 	public class Project
 	{
 		internal SourceCache<Domain, long> Domains { get; } = new SourceCache<Domain, long>(_ => _.Id);
+
+		internal Subject<Unit> ParentUpdates { get; } = new Subject<Unit>();
 	}
 
 	[System.Diagnostics.DebuggerDisplay("{Id}")]
@@ -16,28 +20,64 @@ namespace DynamicDataTests
 	{
 		public long Id { get; }
 
-		public Domain Parent { get => this.parent; set => SetAndRaise(ref this.parent, value); }
+		public Domain Parent
+		{
+			get => this.parent;
+
+			set
+			{
+				SetAndRaise(ref this.parent, value);
+				Project.ParentUpdates.OnNext(Unit.Default);
+			}
+		}
 		private Domain parent;
 
 		public IObservableCache<Domain, long> Children { get; }
 
-		private Project Project { get; }
+		internal Project Project { get; }
 
-		public Domain(Project project, long id, Domain parent = null)
+		public Domain(Project project, long id, Func<Domain, IObservableCache<Domain, long>> childrenFactory, Domain parent = null)
 		{
 			Project = project;
 			Id = id;
-			Parent = parent;
+			this.parent = parent;
 
-			Children = Project.Domains.Connect().AutoRefresh(_ => _.Parent)
-					.Filter(_ => _.Parent != null && _.Parent == this).AsObservableCache();
+			Children = childrenFactory(this);
 		}
 	}
+
+
 
 	public class ProjectTests
 	{
 		[Fact]
-		public void CreateDomainsTest()
+		public void CreateDomains_WithoutAutoRefresh()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect()
+						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+			);
+		}
+
+		[Fact]
+		public void CreateDomains_WithProperty()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect().AutoRefresh(_ => _.Parent)
+						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+			);
+		}
+
+		[Fact]
+		public void CreateDomains_WithObservable()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect().AutoRefreshOnObservable(_ => domain.Project.ParentUpdates)
+						.Filter(_ => _.Parent != null && _.Parent == domain).AsObservableCache()
+			);
+		}
+
+		private void CreateDomains(Func<Domain, IObservableCache<Domain, long>> childrenFactory)
 		{
 			// add domains to the flat cache
 			const int nbChildren = 20;
@@ -45,12 +85,12 @@ namespace DynamicDataTests
 
 			for (int i = 0; i < 10; i++)
 			{
-				var parent = new Domain(project, i);
+				var parent = new Domain(project, i, childrenFactory);
 				project.Domains.AddOrUpdate(parent);
 
 				for (int j = 0; j < nbChildren; j++)
 				{
-					project.Domains.AddOrUpdate(new Domain(project, (i + 1) * nbChildren + j, parent));
+					project.Domains.AddOrUpdate(new Domain(project, (i + 1) * nbChildren + j, childrenFactory, parent));
 				}
 			}
 
