@@ -38,6 +38,7 @@ namespace DynamicDataTests
 			{
 				SetAndRaise(ref this.parent, value);
 				Project.ParentUpdates.OnNext(Unit.Default);
+				Project.Domains.Refresh(this);
 			}
 		}
 		private Domain parent;
@@ -104,6 +105,16 @@ namespace DynamicDataTests
 			CreateDomains(domain =>
 				domain.Project.Domains.Connect()
 					.Filter(Observable.Return<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain), domain.Project.ParentUpdates)
+					.AsObservableCache()
+			);
+		}
+
+		[Fact]
+		public void CreateDomains_WithRefresh()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect()
+					.Filter(Observable.Return<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain))
 					.AsObservableCache()
 			);
 		}
