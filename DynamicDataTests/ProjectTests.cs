@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Linq;
@@ -16,7 +15,6 @@ namespace DynamicDataTests
 	{
 		internal SourceCache<Domain, long> Domains { get; } = new SourceCache<Domain, long>(_ => _.Id);
 
-        //DD is already an observable so subjec should always be a last resort
 		internal Subject<Unit> ParentUpdates { get; } = new Subject<Unit>();
 
 		internal IObservable<IGroupChangeSet<Domain, long, Domain>> GroupedDomains { get; }
@@ -40,12 +38,11 @@ namespace DynamicDataTests
 			{
 				SetAndRaise(ref this.parent, value);
 				Project.ParentUpdates.OnNext(Unit.Default);
+				Project.Domains.Refresh(this);
 			}
 		}
 		private Domain parent;
 
-
-        //What's disposing of ths?
 		public IObservableCache<Domain, long> Children { get; }
 
 		internal Project Project { get; }
@@ -112,8 +109,15 @@ namespace DynamicDataTests
 			);
 		}
 
-
-
+		[Fact]
+		public void CreateDomains_WithRefresh()
+		{
+			CreateDomains(domain =>
+				domain.Project.Domains.Connect()
+					.Filter(Observable.Return<Func<Domain, bool>>(_ => _.Parent != null && _.Parent == domain))
+					.AsObservableCache()
+			);
+		}
 
 		private void CreateDomains(Func<Domain, IObservableCache<Domain, long>> childrenFactory)
 		{
